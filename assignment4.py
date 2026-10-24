@@ -99,5 +99,118 @@ blind_df = (pairs_df
 print_df('TASK4_BLIND_SPOTS', blind_df,
          [F.col('place').asc(), F.col('article_id').asc()])
 
+# Task 5
+place_counts = (pairs_df.groupBy("place").agg(F.count("*").alias("article_count")))
+
+#perform the self join operation
+cooccurrences = (
+    pairs_df.alias("a")
+    .join(
+        pairs_df.alias("b"),
+        (F.col("a.article_id") == F.col("b.article_id")) &
+        (F.col("a.place") < F.col("b.place"))
+    )
+    .select(
+        F.col("a.place").alias("p1"),
+        F.col("b.place").alias("p2")
+    )
+    .groupBy("p1", "p2")
+    .agg(F.count("*").alias("cooccurrence_count"))
+)
+
+counts1 = place_counts.select(
+    F.col("place").alias("p1"),
+    F.col("article_count").alias("n1")
+)
+
+counts2 = place_counts.select(
+    F.col("place").alias("p2"),
+    F.col("article_count").alias("n2")
+)
+
+jaccard_df = (
+    cooccurrences
+    .join(counts1, "p1")
+    .join(counts2, "p2")
+    .select(
+        "p1",
+        "p2",
+        (
+            F.col("cooccurrence_count").cast("double") /
+            (F.col("n1") + F.col("n2") - F.col("cooccurrence_count"))
+        ).alias("jaccard"),
+        "cooccurrence_count"
+    )
+).cache()
+
+#printing the results: 
+top_order = [
+    F.col("jaccard").desc(),
+    F.col("p1").asc(),
+    F.col("p2").asc()
+]
+
+bottom_order = [
+    F.col("jaccard").asc(),
+    F.col("p1").asc(),
+    F.col("p2").asc()
+]
+
+print_df(
+    "TASK5_TOP5",
+    jaccard_df.orderBy(*top_order).limit(5),
+    top_order
+)
+
+print_df(
+    "TASK5_BOTTOM5",
+    jaccard_df.orderBy(*bottom_order).limit(5),
+    bottom_order
+)
+
+# Task 6
+coverage_df = (
+    tf_df
+    .groupBy("place")
+    .agg(F.sum("term_frequency").alias("total_mentions"))
+    .join(place_counts, "place")
+    .select("place", "total_mentions", "article_count")
+)
+
+coverage_order = [
+    F.col("total_mentions").desc(),
+    F.col("place").asc()
+]
+
+print_df(
+    "TASK6_TOP5",
+    coverage_df.orderBy(*coverage_order).limit(5),
+    coverage_order
+)
+
+# Task 7
+distinct_counts = (
+    pairs_df
+    .groupBy("article_id")
+    .agg(F.count("*").alias("distinct_place_count"))
+)
+
+crowded_df = (
+    art_df.select("article_id").distinct()
+    .join(distinct_counts, "article_id", "left")
+    .fillna({"distinct_place_count": 0})
+    .select("article_id", "distinct_place_count")
+)
+
+crowded_order = [
+    F.col("distinct_place_count").desc(),
+    F.col("article_id").asc()
+]
+
+print_df(
+    "TASK7_TOP10",
+    crowded_df.orderBy(*crowded_order).limit(10),
+    crowded_order
+)
 
 spark.stop()
